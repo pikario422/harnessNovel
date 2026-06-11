@@ -960,6 +960,21 @@ def _ensure_min_chapters(virtual_volumes, min_chapters=60):
     print(f"\n--- 阶段三：汇总生成大纲 ---")
     extract_novel_outline(volume_outlines, llm, outlines_dir)
 
+    # 7. 提取写作风格
+    print(f"\n--- 阶段四：提取写作风格 ---")
+    from core.style_extractor import integrate_style_extraction
+    # 使用 lite LLM（节省成本）
+    lite_config = ConfigLoader.get_adaptive_builder_lite_config()
+    lite_llm = LLMProvider(**lite_config) if lite_config.get("api_key") else llm
+
+    # 传入工作区和章节
+    from core.workspace import NovelWorkspace
+    ws = NovelWorkspace("temp")  # 临时工作区
+    ws.root = os.path.dirname(outlines_dir)
+    ws.file_system = os.path.dirname(outlines_dir)
+
+    integrate_style_extraction(ws, chapters, lite_llm)
+
     print(f"\n>>> 参考小说大纲梳理完成 <<<")
 
 

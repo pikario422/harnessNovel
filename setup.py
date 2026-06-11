@@ -20,7 +20,8 @@ setup(
         ],
     },
     install_requires=[
-        "openai",
+        "openai>=1.0.0",
+        "tiktoken>=0.5.0",
     ],
     python_requires=">=3.9",
 )

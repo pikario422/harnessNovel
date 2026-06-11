@@ -600,10 +600,23 @@ def gen_serial_chapters(ws, volume=1, start_chapter=1, max_chapters=None):
         print(f"错误：未找到卷{volume}的世界观文件。请先运行 volume-outline。")
         return
 
-    # 读取写作文风规范（从项目根目录读取）
-    style_guide = _read_file(os.path.join(_root, "core", "system_prompt.md")) or ""
-    agents_md = _read_file(os.path.join(_root, "core", "agents.md")) or ""
-    writing_rules = f"{style_guide}\n\n{agents_md}" if style_guide or agents_md else "（无写作文风规范）"
+    # 读取写作风格指南（优先使用参考小说的风格）
+    style_guide_path = os.path.join(ws.file_system, "STYLE_GUIDE.md")
+    if os.path.exists(style_guide_path):
+        style_guide = _read_file(style_guide_path) or ""
+        print(f"  -> 已加载参考小说写作风格指南")
+
+        # 应用风格强度控制
+        from core.style_intensity import apply_style_with_intensity
+        style_guide = apply_style_with_intensity(ws, style_guide)
+    else:
+        # 回退到原有规范
+        style_guide = _read_file(os.path.join(_root, "core", "system_prompt.md")) or ""
+        agents_md = _read_file(os.path.join(_root, "core", "agents.md")) or ""
+        style_guide = f"{style_guide}\n\n{agents_md}" if style_guide or agents_md else "（无写作文风规范）"
+        print(f"  -> 未找到风格指南，使用默认写作规范")
+
+    writing_rules = style_guide
 
     # 扫描章纲
     outlines_dir = os.path.join(ws.file_system, "chapter_outlines", f"vol_{volume:02d}")

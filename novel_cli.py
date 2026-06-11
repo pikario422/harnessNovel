@@ -53,7 +53,9 @@ def cmd_init(args):
     import shutil
     import re
     from core.workspace import init_workspace
+    from core.cost_tracker import get_tracker, reset_tracker
 
+    reset_tracker()
     ws = init_workspace(args.workspace)
 
     txt_path = args.txt
@@ -102,6 +104,9 @@ def cmd_init(args):
 
     print(f"\n工作空间目录：{ws.root}")
 
+    # 打印成本统计
+    get_tracker().print_summary()
+
 
 def _ws(name):
     from core.workspace import init_workspace
@@ -112,29 +117,68 @@ def _ws(name):
 
 def cmd_novel_outline(args):
     from training.adaptive_builder import gen_novel_outline
+    from core.cost_tracker import get_tracker, reset_tracker
+    reset_tracker()
     ws = _ws(args.workspace)
     gen_novel_outline(ws, force=args.force, creative_direction=args.direction,
                       direction_file=args.direction_file)
+    get_tracker().print_summary()
 
 
 def cmd_volume_outline(args):
     from training.adaptive_builder import gen_volume_outline
+    from core.cost_tracker import get_tracker, reset_tracker
+    reset_tracker()
     ws = _ws(args.workspace)
     gen_volume_outline(ws, volume=args.volume, force=args.force,
                        creative_direction=args.direction)
+    get_tracker().print_summary()
 
 
 def cmd_chapter_outlines(args):
     from training.adaptive_builder import gen_serial_chapter_outlines
+    from core.cost_tracker import get_tracker, reset_tracker
+    reset_tracker()
     ws = _ws(args.workspace)
     gen_serial_chapter_outlines(ws, volume=args.volume, force=args.force)
+    get_tracker().print_summary()
 
 
 def cmd_write(args):
     from training.adaptive_builder import gen_serial_chapters
+    from core.cost_tracker import get_tracker, reset_tracker
+    reset_tracker()
     ws = _ws(args.workspace)
     gen_serial_chapters(ws, volume=args.volume, start_chapter=args.start,
                         max_chapters=args.max)
+    get_tracker().print_summary()
+
+
+def cmd_style_config(args):
+    """配置写作风格强度"""
+    from core.style_intensity import StyleIntensityController
+    ws = _ws(args.workspace)
+    controller = StyleIntensityController(ws)
+
+    if args.intensity is not None:
+        controller.set_intensity(args.intensity)
+
+    if args.flexible:
+        aspects = [a.strip() for a in args.flexible.split(",")]
+        controller.set_flexible_aspects(aspects)
+
+    if args.strict:
+        aspects = [a.strip() for a in args.strict.split(",")]
+        controller.set_strict_aspects(aspects)
+
+    # 显示当前配置
+    config = controller.config
+    print("\n当前风格配置：")
+    print(f"  风格保留度：{config['style_intensity']}%")
+    if config.get('flexible_aspects'):
+        print(f"  灵活处理：{', '.join(config['flexible_aspects'])}")
+    if config.get('strict_aspects'):
+        print(f"  严格遵循：{', '.join(config['strict_aspects'])}")
 
 
 # ── 主入口 ──────────────────────────────────────────────
@@ -186,6 +230,13 @@ def main():
     p.add_argument("--start", type=int, default=1, help="起始章节号")
     p.add_argument("--max", type=int, default=None, help="最大章节数")
 
+    # style-config
+    p = sub.add_parser("style-config", help="配置写作风格强度")
+    p.add_argument("workspace", help="工作区名称")
+    p.add_argument("--intensity", type=int, help="风格保留度 0-100（默认80）")
+    p.add_argument("--flexible", help="允许灵活处理的方面（逗号分隔）")
+    p.add_argument("--strict", help="必须严格遵循的方面（逗号分隔）")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -199,7 +250,8 @@ def main():
         "volume-outline": cmd_volume_outline,
         "chapter-outlines": cmd_chapter_outlines,
         "write": cmd_write,
-        "config": cmd_config
+        "config": cmd_config,
+        "style-config": cmd_style_config,
     }
     dispatch[args.command](args)
 

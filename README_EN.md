@@ -90,6 +90,7 @@ Supports Claude, GPT-4o, DeepSeek, Qwen, and other mainstream models.
 - **Batch summarization**: 20 chapters per batch, maintaining long-term plot coherence
 - **Progressive worldbuilding**: Full book worldbuilding → per-volume worldbuilding, refining settings as the plot advances
 - **Resume from breakpoint**: All stages automatically skip generated content, supporting resume after interruption
+- **💰 Token Cost Visualization**: Real-time display of Token consumption and cost statistics for each operation (supports mainstream models like DeepSeek, GPT, Claude, GLM, Qwen)
 
 ## Requirements
 

@@ -12,6 +12,7 @@ class NovelWorkspace:
         self.root = os.path.join(NOVELS_DIR, name)
         self.file_system = os.path.join(self.root, "file_system")
         self.creative_direction = os.path.join(self.root, "creative_direction.md")
+        self.style_config = os.path.join(self.root, "style_config.json")
         self.reference = os.path.join(self.root, "reference")
         self.reference_outlines = os.path.join(self.reference, "outlines")
         self.reference_sample = os.path.join(self.reference, "sample_novel.txt")

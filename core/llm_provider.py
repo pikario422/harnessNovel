@@ -1,6 +1,8 @@
 import os
+import tiktoken
 from openai import OpenAI
 from core.text_utils import normalize_text
+from core.cost_tracker import get_tracker
 
 # 不值得重试的 HTTP 状态码（认证/余额等确定性错误）
 _NO_RETRY_CODES = {401, 402, 403}
@@ -18,13 +20,21 @@ class LLMProvider:
         else:
             self.client = None
 
+        # 初始化 tokenizer（用于估算）
+        try:
+            self.tokenizer = tiktoken.encoding_for_model("gpt-4")
+        except:
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+
     def generate(self, prompt, temperature=0.7, is_json=False, max_retries=2, max_tokens=None):
         """
         调用大语言模型生成内容。
         支持真实 API 调用与模拟调用（Mock）。
         API 调用失败时最多重试 max_retries 次，401/402/403 等确定性错误直接跳过重试。
         """
-        print(f"[LLMProvider] 正在调用模型 {self.model} ...")
+        # 估算输入 token
+        input_tokens = len(self.tokenizer.encode(prompt))
+        print(f"[LLMProvider] 调用模型 {self.model}（预估输入：{input_tokens:,} tokens）...")
 
         # 真实 API 调用（带重试）
         if self.client:
@@ -43,7 +53,21 @@ class LLMProvider:
             for attempt in range(max_retries + 1):
                 try:
                     response = self.client.chat.completions.create(**kwargs)
-                    return normalize_text(response.choices[0].message.content)
+                    result = normalize_text(response.choices[0].message.content)
+
+                    # 记录实际消耗（如果 API 返回了 usage）
+                    if hasattr(response, 'usage') and response.usage:
+                        actual_input = response.usage.prompt_tokens
+                        actual_output = response.usage.completion_tokens
+                    else:
+                        # API 没返回 usage，使用估算值
+                        actual_input = input_tokens
+                        actual_output = len(self.tokenizer.encode(result))
+
+                    cost = get_tracker().add(self.model, actual_input, actual_output)
+                    print(f"[LLMProvider] 完成（输入：{actual_input:,} | 输出：{actual_output:,} | 成本：${cost:.4f}）")
+
+                    return result
                 except Exception as e:
                     status_code = getattr(e, 'status_code', None)
                     # 确定性错误不重试
