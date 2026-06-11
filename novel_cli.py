@@ -102,6 +102,17 @@ def cmd_init(args):
     from training.adaptive_builder import gen_worldview
     gen_worldview(ws)
 
+    # Step 4: 提取写作风格
+    print()
+    from core.style_extractor import integrate_style_extraction
+    from training.outline_builder import split_chapters
+    from training.adaptive_builder import _get_lite_llm
+    _, chapters = split_chapters(dest)
+    if chapters:
+        llm = _get_lite_llm()
+        if llm:
+            integrate_style_extraction(ws, chapters, llm)
+
     print(f"\n工作空间目录：{ws.root}")
 
     # 打印成本统计
