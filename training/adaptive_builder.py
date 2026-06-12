@@ -15,6 +15,7 @@ from training.reference_finder import (
     load_reference_volume_outline,
     find_reference_batch,
 )
+from training.outline_builder import split_chapters as _split_ref_chapters
 
 BATCH_SIZE = 20
 
@@ -583,7 +584,117 @@ def gen_serial_chapter_outlines(ws, volume=1, force=False):
     print(f"\n>>> 卷{volume}全部 {total_chapters} 章章纲已生成。<<<")
 
 
-def gen_serial_chapters(ws, volume=1, start_chapter=1, max_chapters=None):
+def gen_extend_outlines(ws, volume=1, extend_chapters=20):
+    """基于已写正文续写章纲，不依赖参考小说更新。"""
+    vol_outline = _read_file(os.path.join(ws.file_system, "new_volume_outlines", f"vol_{volume:02d}_outline.md"))
+    vol_worldview = _read_file(os.path.join(ws.file_system, "new_worldviews", f"vol_{volume:02d}_worldview.md"))
+    if not vol_outline or not vol_worldview:
+        print(f"错误：未找到卷{volume}的卷纲或世界观，请先运行 volume-outline。")
+        return
+
+    ch_out_dir = os.path.join(ws.file_system, "chapter_outlines", f"vol_{volume:02d}")
+    os.makedirs(ch_out_dir, exist_ok=True)
+    existing_outlines = sorted(
+        int(m.group(1))
+        for f in os.listdir(ch_out_dir)
+        for m in [re.match(r'^chapter_(\d+)\.md$', f)] if m
+    )
+    last_outline_ch = existing_outlines[-1] if existing_outlines else 0
+
+    chapters_dir = os.path.join(ws.file_system, "chapters", f"vol_{volume:02d}")
+    written_chs = []
+    if os.path.isdir(chapters_dir):
+        written_chs = sorted(
+            int(m.group(1))
+            for f in os.listdir(chapters_dir)
+            for m in [re.match(r'^(\d+)_', f)] if m
+        )
+    if not written_chs:
+        print("错误：尚无已写正文，请先运行 novel write 生成一些章节。")
+        return
+
+    new_start = last_outline_ch + 1
+    new_end = last_outline_ch + extend_chapters
+    print(f">>> 续写章纲：卷{volume}，第{new_start}-{new_end}章 <<<")
+
+    llm = _get_llm()
+    if not llm:
+        return
+
+    # 用已写正文最后BATCH_SIZE章替代参考批次
+    ref_texts = []
+    for ch_num in written_chs[-BATCH_SIZE:]:
+        content = _read_file(os.path.join(chapters_dir, f"{ch_num:03d}_第{ch_num}章.md"))
+        if content:
+            ref_texts.append(content[:500])
+    written_as_reference = "\n\n---\n\n".join(ref_texts) if ref_texts else "（无已写正文）"
+
+    vol_batch_dir = os.path.join(_novel_outlines_dir(ws), f"vol_{volume:02d}")
+    os.makedirs(vol_batch_dir, exist_ok=True)
+    existing_batches = sorted(f for f in os.listdir(vol_batch_dir) if re.match(r'^batch_\d+_\d+\.md$', f))
+    prev_batch = _read_file(os.path.join(vol_batch_dir, existing_batches[-1])) if existing_batches else "（无前序批次）"
+
+    batch_count = (extend_chapters + BATCH_SIZE - 1) // BATCH_SIZE
+    print(f"\n>>> Phase 1: 生成{batch_count}个批次摘要 <<<")
+
+    new_batch_files = []
+    first_batch_idx = (new_start - 1) // BATCH_SIZE + 1
+    last_batch_idx = (new_end - 1) // BATCH_SIZE + 1
+    for batch_idx in range(first_batch_idx, last_batch_idx + 1):
+        bs = (batch_idx - 1) * BATCH_SIZE + 1
+        be = min(batch_idx * BATCH_SIZE, new_end)
+        batch_file = os.path.join(vol_batch_dir, f"batch_{bs:03d}_{be:03d}.md")
+        new_batch_files.append((bs, be, batch_file))
+        if os.path.exists(batch_file):
+            print(f"  批次（第{bs}-{be}章）已存在，跳过。")
+            prev_batch = _read_file(batch_file) or prev_batch
+            continue
+        prompt = PromptLoader.load(
+            "novel_batch_summary",
+            volume_outline=vol_outline, volume_worldview=vol_worldview,
+            batch_index=len(existing_batches) + b + 1,
+            start_chapter=bs, end_chapter=be,
+            previous_batch=prev_batch,
+            reference_batch=written_as_reference,
+        )
+        result = normalize_text(llm.generate(prompt))
+        _write_file(batch_file, result)
+        prev_batch = result
+        print(f"  -> 批次（第{bs}-{be}章）已保存")
+
+    print(f"\n>>> Phase 2: 生成章纲 <<<")
+    prev_outline_texts = [
+        f"【第{n}章 章纲】\n{_read_file(os.path.join(ch_out_dir, f'chapter_{n:03d}.md'))[:600]}"
+        for n in existing_outlines[-3:]
+        if _read_file(os.path.join(ch_out_dir, f"chapter_{n:03d}.md"))
+    ]
+    for bs, be, batch_file in new_batch_files:
+        batch_content = _read_file(batch_file)
+        if not batch_content:
+            continue
+        for ch_num in range(bs, be + 1):
+            out_file = os.path.join(ch_out_dir, f"chapter_{ch_num:03d}.md")
+            if os.path.exists(out_file):
+                content = _read_file(out_file)
+                if content:
+                    prev_outline_texts = (prev_outline_texts + [f"【第{ch_num}章 章纲】\n{content[:600]}"])[-3:]
+                continue
+            prompt = PromptLoader.load(
+                "serial_chapter_outline",
+                volume_outline=vol_outline, volume_worldview=vol_worldview,
+                batch_summary=batch_content,
+                previous_chapter_outlines="\n\n".join(prev_outline_texts) or "（无前序章纲）",
+                chapter_num=ch_num,
+            )
+            result = normalize_text(llm.generate(prompt))
+            _write_file(out_file, result)
+            prev_outline_texts = (prev_outline_texts + [f"【第{ch_num}章 章纲】\n{result[:600]}"])[-3:]
+            print(f"  -> 第{ch_num}章章纲已保存")
+
+    print(f"\n>>> 续写章纲完成（第{new_start}-{new_end}章）<<<")
+    print(f"提示：运行 novel write {ws.name} --volume {volume} --start {new_start} 继续生成正文。")
+
+(ws, volume=1, start_chapter=1, max_chapters=None):
     """串行生成正文：以卷纲+本卷世界观+本章章纲+前2章正文+写作文风为输入生成下一章正文。"""
     # 项目根目录
     _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -642,6 +753,19 @@ def gen_serial_chapters(ws, volume=1, start_chapter=1, max_chapters=None):
     if not llm:
         return
 
+    # 初始化自检代理
+    from core.agents.self_check_agent import SelfCheckAgent
+    checker = SelfCheckAgent(base_url=llm.base_url, api_key=llm.api_key, model=llm.model)
+
+    # 加载参考小说原文（用于提取示例段落）
+    ref_chapters = []
+    if os.path.exists(ws.reference_sample):
+        try:
+            _, ref_chapters = _split_ref_chapters(ws.reference_sample)
+            print(f"  -> 已加载参考小说原文（共 {len(ref_chapters)} 章）")
+        except Exception as e:
+            print(f"  -> 警告：参考小说解析失败，将跳过原著示例注入。错误: {e}")
+
     out_dir = os.path.join(ws.file_system, "chapters", f"vol_{volume:02d}")
     os.makedirs(out_dir, exist_ok=True)
 
@@ -688,21 +812,33 @@ def gen_serial_chapters(ws, volume=1, start_chapter=1, max_chapters=None):
                 prev_texts.append(f"{title}\n{truncated}")
         history_section = "\n\n".join(prev_texts) if prev_texts else "（无前序正文，这是第一章）"
 
-        # 读取本章对应的批次摘要
+        # 读取本章对应的批次摘要（范围匹配，兼容 extend 生成的批次文件）
         batch_summary = ""
         batch_dir = os.path.join(ws.file_system, "outlines", f"vol_{volume:02d}")
         if os.path.isdir(batch_dir):
-            batch_idx = (ch_num - 1) // BATCH_SIZE + 1
-            bs = (batch_idx - 1) * BATCH_SIZE + 1
-            be = min(batch_idx * BATCH_SIZE, total_chapters)
-            bf = os.path.join(batch_dir, f"batch_{bs:03d}_{be:03d}.md")
-            batch_content = _read_file(bf)
-            if batch_content:
-                batch_summary = batch_content
+            for bf_name in sorted(os.listdir(batch_dir)):
+                m = re.match(r'^batch_(\d+)_(\d+)\.md$', bf_name)
+                if m and int(m.group(1)) <= ch_num <= int(m.group(2)):
+                    batch_summary = _read_file(os.path.join(batch_dir, bf_name))
+                    break
+
+        # 提取参考小说对应章节示例（按比例映射）
+        ref_examples = ""
+        if ref_chapters:
+            # 按当前章节在本卷的比例，映射到参考小说章节
+            ratio = (ch_num - 0.5) / total_chapters
+            ref_idx = int(ratio * len(ref_chapters))
+            ref_idx = max(0, min(len(ref_chapters) - 1, ref_idx))
+            ref_ch = ref_chapters[ref_idx]
+            # 取参考章节的前1500字作为风格示例
+            ref_text = ref_ch.get("content", "")[:1500]
+            if ref_text:
+                ref_examples = f"=== 参考小说风格示例（{ref_ch.get('title', '?')}片段）===\n{ref_text}\n\n"
 
         context = (
             f"=== 写作规范 ===\n{writing_rules}\n\n"
-            f"=== 卷纲（卷{volume}）===\n{vol_outline}\n\n"
+            + ref_examples
+            + f"=== 卷纲（卷{volume}）===\n{vol_outline}\n\n"
             f"=== 本卷世界观 ===\n{vol_worldview}\n\n"
             f"=== 章纲（第{ch_num}章）===\n{chapter_outline}\n\n"
             + (f"=== 当前批次摘要（第{bs}-{be}章）===\n{batch_summary}\n\n" if batch_summary else "")
@@ -716,8 +852,24 @@ def gen_serial_chapters(ws, volume=1, start_chapter=1, max_chapters=None):
             end_chapter=ch_num,
             chapter_count=1,
         )
-        result = normalize_text(llm.generate(prompt))
-        _write_file(out_file, result)
+        draft = normalize_text(llm.generate(prompt))
+
+        # 自检与修订（失败不影响落盘）
+        try:
+            print(f"  -> 正在自检第{ch_num}章...")
+            check_context = f"{writing_rules}\n\n{chapter_outline}"
+            violations = checker.check(draft, check_context)
+            if violations.get("violations"):
+                print(f"  -> 发现 {violations.get('failed', 0)} 项违规，正在修订...")
+                revised, summary = checker.revise(draft, violations)
+                draft = revised
+                print(f"  -> 修订完成：{summary}")
+            else:
+                print(f"  -> 自检通过（{violations.get('passed', 0)}/18）")
+        except Exception as e:
+            print(f"  -> 自检失败，使用原始生成结果。错误: {e}")
+
+        _write_file(out_file, draft)
         print(f"  -> 第{ch_num}章正文已保存：{out_file}")
 
     print(f"\n  -> 卷{volume}正文生成完毕（共 {len(pending)} 章）。")

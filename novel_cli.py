@@ -165,6 +165,15 @@ def cmd_write(args):
     get_tracker().print_summary()
 
 
+def cmd_extend(args):
+    from training.adaptive_builder import gen_extend_outlines
+    from core.cost_tracker import get_tracker, reset_tracker
+    reset_tracker()
+    ws = _ws(args.workspace)
+    gen_extend_outlines(ws, volume=args.volume, extend_chapters=args.chapters)
+    get_tracker().print_summary()
+
+
 def cmd_style_config(args):
     """配置写作风格强度"""
     from core.style_intensity import StyleIntensityController
@@ -241,6 +250,12 @@ def main():
     p.add_argument("--start", type=int, default=1, help="起始章节号")
     p.add_argument("--max", type=int, default=None, help="最大章节数")
 
+    # extend
+    p = sub.add_parser("extend", help="基于已写正文续写章纲（无需等待原著更新）")
+    p.add_argument("workspace", help="工作区名称")
+    p.add_argument("--volume", type=int, default=1, help="卷号（默认1）")
+    p.add_argument("--chapters", type=int, default=20, help="续写章纲数量（默认20）")
+
     # style-config
     p = sub.add_parser("style-config", help="配置写作风格强度")
     p.add_argument("workspace", help="工作区名称")
@@ -261,6 +276,7 @@ def main():
         "volume-outline": cmd_volume_outline,
         "chapter-outlines": cmd_chapter_outlines,
         "write": cmd_write,
+        "extend": cmd_extend,
         "config": cmd_config,
         "style-config": cmd_style_config,
     }

@@ -83,22 +83,25 @@ class StyleIntensityController:
         flexible = self.config.get("flexible_aspects", [])
         strict = self.config.get("strict_aspects", [])
 
-        # 强度分级
-        if intensity >= 90:
-            level = "极高"
-            instruction = "必须严格遵循参考小说的所有风格特征，不允许任何偏离。"
-        elif intensity >= 70:
-            level = "高"
-            instruction = "应该保持参考小说的主要风格特征，允许少量创新。"
-        elif intensity >= 50:
-            level = "中等"
-            instruction = "在保留参考小说风格基础上，可以适度融入新元素。"
-        elif intensity >= 30:
-            level = "低"
-            instruction = "仅保留参考小说的核心风格，其他方面可以自由发挥。"
-        else:
-            level = "极低"
-            instruction = "参考小说风格仅供借鉴，可以大胆创新。"
+        # 强度分级（每10%一档）
+        LEVELS = [
+            (100, "完全复刻", "逐字逐句模仿参考风格，不允许任何偏离，包括标点习惯和段落节奏。"),
+            (90,  "极高",    "严格遵循所有风格特征，仅允许极少量措辞调整。"),
+            (80,  "高",      "保持主要风格特征，句式结构与叙事节奏须贴近原著，允许少量创新。"),
+            (70,  "较高",    "整体氛围与原著一致，句式节奏可适当变化。"),
+            (60,  "中高",    "保留原著的叙事腔调，允许在描写手法上有个人发挥。"),
+            (50,  "中等",    "保留原著风格基础，可融入新元素，整体感觉相似即可。"),
+            (40,  "中低",    "仅保留原著的叙事视角和人物语气，其余可自由调整。"),
+            (30,  "较低",    "只保留核心风格标识（如人称、语气），大量自由发挥。"),
+            (20,  "低",      "以原著风格为远端参照，主要依靠自身创作风格。"),
+            (10,  "极低",    "原著风格仅作背景参考，鼓励大胆创新。"),
+            (0,   "自由",    "完全自由创作，不受参考风格约束。"),
+        ]
+        level, instruction = "自由", "完全自由创作，不受参考风格约束。"
+        for threshold, lv, inst in LEVELS:
+            if intensity >= threshold:
+                level, instruction = lv, inst
+                break
 
         # 构建指令
         style_instruction = f"""
