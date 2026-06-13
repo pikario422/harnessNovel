@@ -694,7 +694,7 @@ def gen_extend_outlines(ws, volume=1, extend_chapters=20):
     print(f"\n>>> 续写章纲完成（第{new_start}-{new_end}章）<<<")
     print(f"提示：运行 novel write {ws.name} --volume {volume} --start {new_start} 继续生成正文。")
 
-(ws, volume=1, start_chapter=1, max_chapters=None):
+def gen_serial_chapters(ws, volume=1, start_chapter=1, max_chapters=None):
     """串行生成正文：以卷纲+本卷世界观+本章章纲+前2章正文+写作文风为输入生成下一章正文。"""
     # 项目根目录
     _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -819,6 +819,7 @@ def gen_extend_outlines(ws, volume=1, extend_chapters=20):
             for bf_name in sorted(os.listdir(batch_dir)):
                 m = re.match(r'^batch_(\d+)_(\d+)\.md$', bf_name)
                 if m and int(m.group(1)) <= ch_num <= int(m.group(2)):
+                    bs, be = int(m.group(1)), int(m.group(2))
                     batch_summary = _read_file(os.path.join(batch_dir, bf_name))
                     break
 
@@ -861,6 +862,8 @@ def gen_extend_outlines(ws, volume=1, extend_chapters=20):
             violations = checker.check(draft, check_context)
             if violations.get("violations"):
                 print(f"  -> 发现 {violations.get('failed', 0)} 项违规，正在修订...")
+                for v in violations.get("violations", []):
+                    print(f"     [{v.get('severity','?')}] 规则{v.get('rule_id','?')}: {v.get('issue','')}")
                 revised, summary = checker.revise(draft, violations)
                 draft = revised
                 print(f"  -> 修订完成：{summary}")
