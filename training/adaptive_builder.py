@@ -20,6 +20,39 @@ from training.outline_builder import split_chapters as _split_ref_chapters
 BATCH_SIZE = 20
 
 
+def _extract_chapter_characters(outline_text):
+    """从章纲 # 本章角色 段落提取角色名列表。"""
+    m = re.search(r'#\s*本章角色\s*\n(.*?)(?:\n#|\Z)', outline_text, re.DOTALL)
+    if not m:
+        return []
+    names = []
+    for line in m.group(1).strip().splitlines():
+        name = re.split(r'[：:]', line.strip())[0]
+        name = re.sub(r'[（(（].*?[）)）]', '', name).strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _build_char_registry(ch_out_dir, up_to_chapter):
+    """从已有章纲文件构建角色首登记录表 {name: first_chapter_num}。"""
+    registry = {}
+    for i in range(1, up_to_chapter + 1):
+        content = _read_file(os.path.join(ch_out_dir, f"chapter_{i:03d}.md"))
+        if content:
+            for name in _extract_chapter_characters(content):
+                if name not in registry:
+                    registry[name] = i
+    return registry
+
+
+def _format_char_registry(registry):
+    if not registry:
+        return "（尚无已登场角色，本章角色均为首次登场）"
+    lines = [f"- {name}（第{ch}章起）" for name, ch in sorted(registry.items(), key=lambda x: x[1])]
+    return "\n".join(lines)
+
+
 def _get_llm():
     config = ConfigLoader.get_adaptive_builder_config()
     if not config.get("api_key"):
@@ -532,6 +565,9 @@ def gen_serial_chapter_outlines(ws, volume=1, force=False):
     ch_out_dir = os.path.join(ws.file_system, "chapter_outlines", f"vol_{volume:02d}")
     os.makedirs(ch_out_dir, exist_ok=True)
 
+    # 预加载已有章纲的角色注册表
+    char_registry = _build_char_registry(ch_out_dir, total_chapters)
+
     # 按批次文件顺序读取
     batch_files = sorted(
         f for f in os.listdir(vol_batch_dir)
@@ -575,10 +611,14 @@ def gen_serial_chapter_outlines(ws, volume=1, force=False):
                 volume_worldview=vol_worldview,
                 batch_summary=batch_content,
                 previous_chapter_outlines=previous_text,
+                established_characters=_format_char_registry(char_registry),
                 chapter_num=ch_num,
             )
             result = normalize_text(llm.generate(prompt))
             _write_file(out_file, result)
+            for name in _extract_chapter_characters(result):
+                if name not in char_registry:
+                    char_registry[name] = ch_num
             print(f"  -> 第{ch_num}章章纲已保存：{out_file}")
 
     print(f"\n>>> 卷{volume}全部 {total_chapters} 章章纲已生成。<<<")
@@ -668,6 +708,7 @@ def gen_extend_outlines(ws, volume=1, extend_chapters=20):
         for n in existing_outlines[-3:]
         if _read_file(os.path.join(ch_out_dir, f"chapter_{n:03d}.md"))
     ]
+    char_registry = _build_char_registry(ch_out_dir, last_outline_ch)
     for bs, be, batch_file in new_batch_files:
         batch_content = _read_file(batch_file)
         if not batch_content:
@@ -678,17 +719,24 @@ def gen_extend_outlines(ws, volume=1, extend_chapters=20):
                 content = _read_file(out_file)
                 if content:
                     prev_outline_texts = (prev_outline_texts + [f"【第{ch_num}章 章纲】\n{content[:600]}"])[-3:]
+                    for name in _extract_chapter_characters(content):
+                        if name not in char_registry:
+                            char_registry[name] = ch_num
                 continue
             prompt = PromptLoader.load(
                 "serial_chapter_outline",
                 volume_outline=vol_outline, volume_worldview=vol_worldview,
                 batch_summary=batch_content,
                 previous_chapter_outlines="\n\n".join(prev_outline_texts) or "（无前序章纲）",
+                established_characters=_format_char_registry(char_registry),
                 chapter_num=ch_num,
             )
             result = normalize_text(llm.generate(prompt))
             _write_file(out_file, result)
             prev_outline_texts = (prev_outline_texts + [f"【第{ch_num}章 章纲】\n{result[:600]}"])[-3:]
+            for name in _extract_chapter_characters(result):
+                if name not in char_registry:
+                    char_registry[name] = ch_num
             print(f"  -> 第{ch_num}章章纲已保存")
 
     print(f"\n>>> 续写章纲完成（第{new_start}-{new_end}章）<<<")
