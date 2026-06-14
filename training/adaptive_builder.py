@@ -122,6 +122,14 @@ def _load_creative_direction(ws, cli_input=None, direction_file=None):
     return ""
 
 
+def gen_novel_worldview(ws, force=False):
+    """独立重生成全书世界观，不触碰大纲。"""
+    llm = _get_llm()
+    if not llm:
+        return
+    _gen_new_novel_worldview_aggregated(ws, llm, force=force)
+
+
 def gen_novel_outline(ws, force=False, creative_direction=None, direction_file=None, preserved_content=None):
     """Step 1: 仿写生成新小说大纲（含按卷世界观）。"""
     output_path = os.path.join(ws.file_system, "novel_outline.md")
@@ -183,7 +191,7 @@ def _gen_novel_outline_single_ref(ws, llm, direction, preserved_content=None):
     return normalize_text(llm.generate(prompt))
 
 
-def _gen_new_novel_worldview_aggregated(ws, llm):
+def _gen_new_novel_worldview_aggregated(ws, llm, force=False):
     """基于新小说大纲 + 参考小说全书世界观，生成新小说全书世界观。"""
     novel_outline = _read_file(os.path.join(ws.file_system, "novel_outline.md"))
     if not novel_outline:
@@ -197,7 +205,7 @@ def _gen_new_novel_worldview_aggregated(ws, llm):
 
     aggregated_path = os.path.join(ws.file_system, "new_novel_worldview.md")
     existing = _read_file(aggregated_path)
-    if existing:
+    if existing and not force:
         print(f"新小说世界观已存在：{aggregated_path}")
         print("使用 --force 覆盖。")
         return

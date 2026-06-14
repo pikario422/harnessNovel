@@ -126,6 +126,15 @@ def _ws(name):
 
 # ── 仿写流程 ──────────────────────────────────────────────
 
+def cmd_worldview(args):
+    from training.adaptive_builder import gen_novel_worldview
+    from core.cost_tracker import get_tracker, reset_tracker
+    reset_tracker()
+    ws = _ws(args.workspace)
+    gen_novel_worldview(ws, force=args.force)
+    get_tracker().print_summary()
+
+
 def cmd_novel_outline(args):
     from training.adaptive_builder import gen_novel_outline
     from core.cost_tracker import get_tracker, reset_tracker
@@ -223,6 +232,11 @@ def main():
     p.add_argument("--txt", help="参考小说文件路径")
     p.add_argument("--batch-size", type=int, default=20, help="每批处理章节数（默认20）")
 
+    # worldview
+    p = sub.add_parser("worldview", help="重新生成全书世界观（不触碰大纲）")
+    p.add_argument("workspace", help="工作区名称")
+    p.add_argument("--force", action="store_true")
+
     # novel-outline
     p = sub.add_parser("novel-outline", help="仿写生成新小说大纲")
     p.add_argument("workspace", help="工作区名称")
@@ -272,6 +286,7 @@ def main():
     dispatch = {
         "list": cmd_list,
         "init": cmd_init,
+        "worldview": cmd_worldview,
         "novel-outline": cmd_novel_outline,
         "volume-outline": cmd_volume_outline,
         "chapter-outlines": cmd_chapter_outlines,
